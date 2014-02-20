@@ -1,0 +1,310 @@
+<!doctype html> 
+<head>
+<link rel="stylesheet" type="text/css" href="mystyle.css">
+<script src="scripts/physicjs-full.js"></script>
+<script src="http://code.jquery.com/jquery-2.0.2.min.js"></script>
+</head>
+<body>
+<canvas id="viewport" width="2000" height="800"></canvas>
+<script type="text/javascript">
+Physics.behavior('demo-mouse-events', function( parent ){
+  
+  return {
+    
+    init: function( options ){
+      
+      var self = this;
+      
+      this.mousePos = Physics.vector();
+      this.mousePosOld = Physics.vector();
+      this.offset = Physics.vector();
+      
+      this.el = $(options.el).on({
+        mousedown: function(e){
+          
+          var offset = $(this).offset();
+          self.mousePos.set(e.pageX - offset.left, e.pageY - offset.top);
+          
+          var body = self._world._bodies[0]; //findOne({ $at: self.mousePos }) ;
+          if ( body ){
+            // fix the body in place
+            body.fixed = true;
+            // remember the currently grabbed body
+            self.body = body;
+            // remember the mouse offset
+            self.offset.clone( self.mousePos ).vsub( body.state.pos );
+            return;
+          }
+          
+          self.mouseDown = true;
+        },
+        mousemove: function(e){
+          var offset = $(this).offset();
+          self.mousePosOld.clone( self.mousePos );
+          // get new mouse position
+          self.mousePos.set(e.pageX - offset.left, e.pageY - offset.top);
+        },
+        mouseup: function(e){
+          var offset = $(this).offset();
+          self.mousePosOld.clone( self.mousePos );
+          self.mousePos.set(e.pageX - offset.left, e.pageY - offset.top);
+          
+          // release the body
+          if (self.body){
+            self.body.fixed = false;
+            self.body = false;
+          }
+          self.mouseDown = false;
+        }
+      });
+    },
+    
+    connect: function( world ){
+      // subscribe the .behave() method to the position integration step
+      world.subscribe('integrate:positions', this.behave, this);
+    },
+    
+    disconnect: function( world ){
+      // unsubscribe when disconnected
+      world.unsubscribe('integrate:positions', this.behave);
+    },
+    
+    behave: function( data ){
+      
+      if ( this.body ){
+        // if we have a body, we need to move it the the new mouse position.
+        // we'll also track the velocity of the mouse movement so that when it's released
+        // the body can be "thrown"
+        this.body.state.pos.clone( this.mousePos ).vsub( this.offset );
+        this.body.state.vel.clone( this.body.state.pos ).vsub( this.mousePosOld ).vadd( this.offset ).mult( 1 / 30 );
+        this.body.state.vel.clamp( { x: -1, y: -1 }, { x: 1, y: 1 } );
+        return;
+      }
+      
+      if ( !this.mouseDown ){
+        return;
+      }
+      
+      // if we don't have a body, then just accelerate
+      // all bodies towards the current mouse position
+      
+      var bodies = data.bodies
+      // use a scratchpad to speed up calculations
+      ,scratch = Physics.scratchpad()
+      ,v = scratch.vector()
+      ,body
+      ;
+      
+      for ( var i = 0, l = bodies.length; i < l; ++i ){
+        
+        body = bodies[ i ];
+        
+        // simple linear acceleration law towards the mouse position
+        v.clone(this.mousePos)
+        .vsub( body.state.pos )
+        .normalize()
+        .mult( 0.001 )
+        ;
+        
+        body.accelerate( v );
+      }
+      
+      scratch.done();
+    }
+  };
+});
+
+Physics(function(world){
+  var bomb = new Audio('https://dl.dropboxusercontent.com/u/55627643/bomb.mp3');
+  var viewWidth = 2000;
+  var viewHeight = 800;
+        
+  var renderer = Physics.renderer('canvas', {
+    el: 'viewport',
+    width: viewWidth,
+    height: viewHeight,
+    meta: false, // don't display meta data
+    styles: {
+        // set colors for the circle bodies
+        'circle' : {
+            strokeStyle: 'hsla(60, 37%, 17%, 1)',
+            lineWidth: 1,
+            fillStyle: 'hsla(60, 37%, 57%, 0.8)',
+            angleIndicator: 'hsla(60, 37%, 17%, 0.4)'
+        }
+    }
+  });
+
+  // add the renderer
+  world.add( renderer );
+  // render on each step
+  world.subscribe('step', function(){
+    world.render();
+  });
+  
+  // bounds of the window
+  var viewportBounds = Physics.aabb(0, 0, viewWidth, viewHeight);
+
+  var berry = Physics.body('circle', {
+      x: 750, // x-coordinate
+      y: 550, // y-coordinate
+      vx: 0, // velocity in x-direction
+      vy: 0, // velocity in y-direction
+      radius: 60
+    });
+  
+  berry.view = new Image();
+  berry.view.src ='https://dl.dropboxusercontent.com/u/55627643/berry.png';
+  world.add(berry);
+    
+  var irit = Physics.body('circle', {
+        x: 0, // x-coordinate
+        y: 50, // y-coordinate
+        vx: 2, // velocity in x-direction
+        vy: 0, // velocity in y-direction
+        radius: 30
+      });
+    
+    irit.view = new Image();
+    irit.view.src ='https://dl.dropboxusercontent.com/u/55627643/irit.png';
+    world.add(irit)
+   
+   var yfat = Physics.body('circle', {
+        x: 0, // x-coordinate
+        y: 200, // y-coordinate
+        vx: 3, // velocity in x-direction
+        vy: 0, // velocity in y-direction
+        radius: 30
+      });
+    
+    yfat.view = new Image();
+    yfat.view.src ='https://dl.dropboxusercontent.com/u/55627643/yfat.png';
+    world.add(yfat);
+      
+  // constrain objects to these bounds
+  world.add(Physics.behavior('edge-collision-detection', {
+      aabb: viewportBounds,
+      restitution: 2,
+      cof: 0.99
+  }));
+  
+  // subscribe to ticker to advance the simulation
+  Physics.util.ticker.subscribe(function( time, dt ){
+    
+      world.step( time );
+  });
+ 
+  // add some gravity
+  //world.add( Physics.behavior('constant-acceleration') );
+  // ensure objects bounce when edge collision is detected
+  world.add( Physics.behavior('body-impulse-response') );
+  world.add( Physics.behavior('body-collision-detection') );
+  world.add( Physics.behavior('sweep-prune') );
+
+  world.subscribe('collisions:detected', function( data ){
+    var c;
+    for (var i = 0, l = data.collisions.length; i < l; i++){
+        c = data.collisions[ i ];
+        world.publish({
+            topic: 'collision-pair',
+            bodyA: c.bodyA,
+            bodyB: c.bodyB
+        });
+    }
+  });
+    
+  // subscribe to collision pair 
+  world.subscribe('collision-pair', function( data ){
+      var b = data.bodyA;
+      if ((data.bodyA == berry && data.bodyB == irit) ||
+          (data.bodyA == irit && data.bodyB == berry)){
+          bomb.play();       
+          world.remove(irit);
+        }
+      if ((data.bodyA == berry && data.bodyB == yfat) ||
+          (data.bodyA == yfat && data.bodyB == berry)){ 
+          bomb.play();       
+          world.remove(yfat);
+          world._bodies[0].state.pos.set(0,0);
+      }
+
+  });
+    
+
+   world.add( Physics.behavior('demo-mouse-events', { el: '#viewport' }) );
+     // begin
+        var $win = $(window)
+            ,viewWidth = $win.width()
+            ,viewHeight = $win.height()
+            ,viewportBounds = Physics.aabb(0, 0, viewWidth, viewHeight)
+            ,edgeBounce = Physics.behavior('edge-collision-detection', {
+                aabb: viewportBounds,
+                restitution: 0.2,
+                cof: 0.99
+            })
+            ,rigidConstraints = Physics.behavior('rigid-constraint-manager', {
+                targetLength: 3
+            })
+            ,square = [
+                {x: 0, y: 50},
+                {x: 50, y: 50},
+                {x: 50, y: 0},
+                {x: 0, y: 0}
+            ]
+            ,l
+            ;
+
+        $(window).on('resize', function(){
+
+            viewWidth = $win.width();
+            viewHeight = $win.height();
+            viewportBounds = Physics.aabb(0, 0, viewWidth, viewHeight);
+            edgeBounce.setAABB( viewportBounds );
+
+        }).trigger('resize');
+
+   var basket = [];
+        for ( var i = 600; i < 900; i += 5 ){
+            l = basket.push(
+                Physics.body('circle', {
+                    x: i,
+                    y: viewHeight / 1.3,
+                    radius: 1,
+                    restitution: 0.2,
+                    mass: .5,
+                    hidden: true
+                })
+            );
+
+            rigidConstraints.constrain( basket[ l - 1 ], basket[ l - 2 ] );
+        }
+
+        world.subscribe('render', function( data ){
+            var renderer = data.renderer;
+            for ( var i = 1, l = basket.length; i < l; ++i ){
+                
+                renderer.drawLine(basket[ i - 1 ].state.pos, basket[ i ].state.pos, {
+                    strokeStyle: '#664',
+                    lineWidth: 3
+                });
+            }
+        });
+
+        // fix the ends
+        basket[ 0 ].fixed = true;
+        basket[ l - 1 ].fixed = true;
+        basket[ 0 ].hidden = false;
+        basket[ l - 1 ].hidden = false;
+        // add things to world
+        world.add( basket );
+        world.add( rigidConstraints );
+        world.add( edgeBounce );
+  // start the ticker
+  Physics.util.ticker.start();
+
+});
+
+</script>
+
+</body>
+</html>
